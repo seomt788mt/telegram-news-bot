@@ -1,7 +1,7 @@
-python-telegram-bot[job-queue]==21.6
-feedparser
+python-telegram-bot==21.6
 apscheduler
-beautifulsoup4
-requests
-python-dotenv
 pytz
+requests
+feedparser
+beautifulsoup4
+python-dotenv
