@@ -98,7 +98,13 @@ def send_daily_news():
     }
 
     r = requests.post(url, json=payload, timeout=20)
-    r.raise_for_status()
+
+    print("🔎 Telegram status:", r.status_code)
+    print("🔎 Telegram response:", r.text)
+    if r.status_code != 200:
+        return
+    print("✅ Daily news sent successfully")
+
 
     data = r.json()
     if data.get("ok"):
