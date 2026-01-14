@@ -1,283 +1,146 @@
 import os
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import sqlite3
-from datetime import time
-from typing import List, Dict
+import time
 import asyncio
-from telegram import Bot
-
 import requests
 import feedparser
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Bot
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-
-
+# ======================
+# LOAD ENV
+# ======================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-TIMEZONE = os.getenv("TIMEZONE", "Asia/Bangkok")
-SEND_TIME = os.getenv("SEND_TIME", "09:00")
+
+VNEXPRESS_RSS = os.getenv("VNEXPRESS_RSS", "https://vnexpress.net/rss/tin-moi-nhat.rss")
+TUOITRE_RSS = os.getenv("TUOITRE_RSS", "https://tuoitre.vn/rss/tin-moi-nhat.rss")
+CAFEF_HOME = os.getenv("CAFEF_HOME", "https://cafef.vn/")
 TOP_N = int(os.getenv("TOP_N", "5"))
 
-VNEXPRESS_RSS = os.getenv("VNEXPRESS_RSS")
-TUOITRE_RSS = os.getenv("TUOITRE_RSS")
-CAFEF_HOME = os.getenv("CAFEF_HOME", "https://cafef.vn/")
-
-DB_PATH = "sent_items.sqlite3"
+if not BOT_TOKEN or not CHAT_ID:
+    raise SystemExit("❌ Missing BOT_TOKEN or CHAT_ID")
 
 
-def db_init():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS sent (
-            id TEXT PRIMARY KEY,
-            ts DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def db_is_sent(item_id: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM sent WHERE id=?", (item_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row is not None
-
-
-def db_mark_sent(item_id: str):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO sent(id) VALUES(?)", (item_id,))
-    conn.commit()
-    conn.close()
-
-
-def parse_hhmm(s: str) -> time:
-    hh, mm = s.split(":")
-    return time(int(hh), int(mm))
-
-
-def escape_html(s: str) -> str:
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;")
-             .replace("\"", "&quot;"))
-
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ("/", "/health"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"ok")
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-def start_scheduler(app):
-    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Bangkok"))
-
-    scheduler.add_job(
-        lambda: app.create_task(send_daily_news_job(app.bot)),
-        trigger=CronTrigger(minute="*/1"),
-        id="daily_news",
-        replace_existing=True,
-    )
-
-    scheduler.start()
-    print("✅ APScheduler started: daily at 09:00 Asia/Bangkok")
-
-
-
-def start_health_server():
-    port = int(os.environ.get("PORT", "10000"))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    server.serve_forever()
-
-
-def fetch_rss(rss_url: str, source_name: str, top_n: int) -> List[Dict]:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
-        "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-    try:
-        r = requests.get(rss_url, headers=headers, timeout=20)
-        r.raise_for_status()
-        feed = feedparser.parse(r.content)  # parse từ bytes
-    except Exception as e:
-        print(f"[RSS ERROR] {source_name}: {e}")
-        return []
-
+# ======================
+# BUILD NEWS CONTENT
+# ======================
+def get_rss_news(rss_url, source_name):
+    feed = feedparser.parse(rss_url)
     items = []
-    for e in feed.entries[: top_n * 3]:
-        title = (e.get("title") or "").strip()
-        link = (e.get("link") or "").strip()
-        if not title or not link:
-            continue
-        item_id = f"{source_name}:{link}"
-        items.append({"id": item_id, "source": source_name, "title": title, "link": link})
-        if len(items) >= top_n:
-            break
-    return items
+    for entry in feed.entries[:TOP_N]:
+        items.append(f"• <a href='{entry.link}'>{entry.title}</a>")
+    if not items:
+        return ""
+    return f"🔸 <b>{source_name}</b>\n" + "\n".join(items)
 
 
-
-def fetch_cafef_home(top_n: int) -> List[Dict]:
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegramNewsBot/1.0)"}
-    r = requests.get(CAFEF_HOME, headers=headers, timeout=20)
-    r.raise_for_status()
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    links = []
-    for a in soup.select("a[href]"):
-        href = (a.get("href") or "").strip()
-        text = a.get_text(" ", strip=True)
-
-        if not href or not text:
-            continue
-
-        if href.startswith("//"):
-            href = "https:" + href
-        elif href.startswith("/"):
-            href = "https://cafef.vn" + href
-
-        # CafeF thường có bài dạng .chn
-        if "cafef.vn" in href and href.endswith(".chn"):
-            if len(text) < 20:
-                continue
-            item_id = f"cafef:{href}"
-            links.append({"id": item_id, "source": "CafeF", "title": text, "link": href})
-
-    seen = set()
-    uniq = []
-    for it in links:
-        if it["link"] in seen:
-            continue
-        seen.add(it["link"])
-        uniq.append(it)
-        if len(uniq) >= top_n:
-            break
-
-    return uniq
-
-
-def collect_news(top_n: int) -> Dict[str, List[Dict]]:
-    items_by_source = {
-        "VnExpress": fetch_rss(VNEXPRESS_RSS, "vnexpress", top_n),
-        "Tuổi Trẻ": fetch_rss(TUOITRE_RSS, "tuoitre", top_n),
-        "CafeF": fetch_cafef_home(top_n),
-    }
-
-    # lọc item đã gửi
-    for src in list(items_by_source.keys()):
-        filtered = []
-        for it in items_by_source[src]:
-            if not db_is_sent(it["id"]):
-                filtered.append(it)
-        items_by_source[src] = filtered[:top_n]
-
-    return items_by_source
-
-
-def format_message(items_by_source: Dict[str, List[Dict]]) -> str:
-    lines = ["📰 <b>Tin mới nhất (09:00)</b>", ""]
-    for source, items in items_by_source.items():
-        lines.append(f"🔸 <b>{escape_html(source)}</b>")
+def get_cafef_news():
+    try:
+        res = requests.get(CAFEF_HOME, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        links = soup.select("h3 a")[:TOP_N]
+        items = []
+        for a in links:
+            title = a.get_text(strip=True)
+            link = a.get("href")
+            if link and link.startswith("/"):
+                link = "https://cafef.vn" + link
+            if title and link:
+                items.append(f"• <a href='{link}'>{title}</a>")
         if not items:
-            lines.append("Không có tin mới hoặc đã gửi trước đó.")
-        else:
-            for i, it in enumerate(items, 1):
-                title = escape_html(it["title"])
-                link = it["link"]
-                lines.append(f"{i}. <a href=\"{link}\">{title}</a>")
-        lines.append("")
-    lines.append("— Bot gửi tin tự động mỗi ngày ✅")
-    return "\n".join(lines)
+            return ""
+        return "🔸 <b>CafeF</b>\n" + "\n".join(items)
+    except Exception as e:
+        print("❌ CafeF error:", e)
+        return ""
 
 
-async def send_once():
-    """Chạy 1 lần: lấy tin và gửi vào CHAT_ID rồi thoát."""
+def build_daily_message():
+    parts = []
+
+    vnexpress = get_rss_news(VNEXPRESS_RSS, "VnExpress")
+    if vnexpress:
+        parts.append(vnexpress)
+
+    tuoitre = get_rss_news(TUOITRE_RSS, "Tuổi Trẻ")
+    if tuoitre:
+        parts.append(tuoitre)
+
+    cafef = get_cafef_news()
+    if cafef:
+        parts.append(cafef)
+
+    if not parts:
+        return "Hôm nay chưa có tin mới."
+
+    return "\n\n".join(parts)
+
+
+# ======================
+# SEND MESSAGE (ASYNC)
+# ======================
+async def send_daily_news():
     bot = Bot(token=BOT_TOKEN)
-    # Gọi đúng hàm/logic bạn đang dùng để build nội dung tin
-    text = await build_daily_message()  # <-- bạn đổi tên theo hàm của bạn
-    if not text:
-        text = "Hôm nay không có tin mới."
-    await bot.send_message(chat_id=CHAT_ID, text=text, disable_web_page_preview=True)
+    text = build_daily_message()
 
-async def send_daily_news_job(context: ContextTypes.DEFAULT_TYPE):
-    # (toàn bộ logic lấy tin + gửi message để ở đây)
-    # ví dụ gửi:
-    await context.bot.send_message(chat_id=CHAT_ID, text="test job ok")
-
-async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_daily_news_job(context)
-
-
-async def send_daily_news(context: ContextTypes.DEFAULT_TYPE) -> None:
-    items_by_source = collect_news(TOP_N)
-    msg = format_message(items_by_source)
-
-    await context.bot.send_message(
+    await bot.send_message(
         chat_id=CHAT_ID,
-        text=msg,
-        parse_mode=ParseMode.HTML,
+        text=text,
+        parse_mode="HTML",
         disable_web_page_preview=True,
     )
 
-    for items in items_by_source.values():
-        for it in items:
-            db_mark_sent(it["id"])
+    print("✅ Daily news sent successfully")
 
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("✅ Bot đã sẵn sàng. Gõ /send để test gửi ngay.")
+# ======================
+# APSCHEDULER
+# ======================
+def start_scheduler():
+    tz = pytz.timezone("Asia/Bangkok")
+    scheduler = BackgroundScheduler(timezone=tz)
+
+    # 🔥 TEST MODE (CHẠY MỖI PHÚT) – DÙNG ĐỂ KIỂM TRA
+    # scheduler.add_job(
+    #     lambda: asyncio.run(send_daily_news()),
+    #     trigger=CronTrigger(minute="*/1"),
+    #     id="test_every_minute",
+    #     replace_existing=True,
+    # )
+
+    # ✅ CHÍNH THỨC – 09:00 SÁNG GIỜ VIỆT NAM
+    scheduler.add_job(
+        lambda: asyncio.run(send_daily_news()),
+        trigger=CronTrigger(hour=9, minute=0),
+        id="daily_9am",
+        replace_existing=True,
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    scheduler.start()
+    print("✅ APScheduler started (09:00 Asia/Bangkok)")
 
 
-async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    items_by_source = collect_news(TOP_N)
-    msg = format_message(items_by_source)
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-
-    for items in items_by_source.values():
-        for it in items:
-            db_mark_sent(it["id"])
-
-
+# ======================
+# MAIN
+# ======================
 def main():
-    if not BOT_TOKEN or not CHAT_ID:
-        raise SystemExit("Missing BOT_TOKEN or CHAT_ID")
+    start_scheduler()
+    print("✅ Bot service running (scheduler mode, no polling)")
 
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    # Nếu bạn có /send thì giữ lại
-    app.add_handler(CommandHandler("send", cmd_send))
-
-    # ✅ BƯỚC 2: GỌI SCHEDULER Ở ĐÂY
-    start_scheduler(app)
-
-    print("✅ Bot started (scheduler mode)")
-
-    app.run_polling()
-
+    # Giữ process sống cho Render Free
+    while True:
+        time.sleep(60)
 
 
 if __name__ == "__main__":
     main()
-
-
