@@ -237,6 +237,8 @@ def main() -> None:
     )
 
     print(f"✅ Running... daily at {SEND_TIME} ({TIMEZONE}) to chat_id={CHAT_ID}")
+    app.job_queue.run_once(send_daily_news, when=60, name="force_test")
+    print("🔥 Force test: job will run in 60 seconds")
     threading.Thread(target=start_health_server, daemon=True).start()
     app.run_polling()
 
