@@ -89,6 +89,21 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+def start_scheduler(app):
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Bangkok"))
+
+    scheduler.add_job(
+        lambda: app.create_task(send_daily_news_job(app.bot)),
+        trigger=CronTrigger(minute="*/1"),
+        id="daily_news",
+        replace_existing=True,
+    )
+
+    scheduler.start()
+    print("✅ APScheduler started: daily at 09:00 Asia/Bangkok")
+
+
+
 def start_health_server():
     port = int(os.environ.get("PORT", "10000"))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
@@ -244,36 +259,25 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             db_mark_sent(it["id"])
 
 
-def main() -> None:
+def main():
     if not BOT_TOKEN or not CHAT_ID:
-        raise SystemExit("Thiếu BOT_TOKEN hoặc CHAT_ID trong file .env")
-
-    db_init()
+        raise SystemExit("Missing BOT_TOKEN or CHAT_ID")
 
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", cmd_start))
+
+    # Nếu bạn có /send thì giữ lại
     app.add_handler(CommandHandler("send", cmd_send))
 
-    t = parse_hhmm(SEND_TIME)
-    app.job_queue.run_daily(
-        send_daily_news,
-        time=t,
-        name="daily_news",
-        chat_id=CHAT_ID,
-    )
-    
-    app.job_queue.run_daily(send_daily_news_job, time=t, name="daily_news", chat_id=CHAT_ID)
-    app.job_queue.run_once(send_daily_news_job, when=60, name="force_test")
-    print("🔥 Force test: job will run in 60 seconds")
-    threading.Thread(target=start_health_server, daemon=True).start()
+    # ✅ BƯỚC 2: GỌI SCHEDULER Ở ĐÂY
+    start_scheduler(app)
+
+    print("✅ Bot started (scheduler mode)")
+
     app.run_polling()
 
 
-import sys
 
 if __name__ == "__main__":
-    if "--send-only" in sys.argv:
-        asyncio.run(send_once())
-    else:
-        main()
+    main()
+
 
