@@ -123,12 +123,14 @@ def start_scheduler():
     # )
 
     # ✅ CHÍNH THỨC – 09:00 SÁNG GIỜ VIỆT NAM
-    scheduler.add_job(
+   scheduler.add_job(
     send_daily_news,
     trigger=CronTrigger(minute="*/1"),
     id="test_every_minute",
     replace_existing=True,
-)
+    )
+    print("🧪 TEST MODE: send every minute")
+    )
 
     scheduler.start()
     print("✅ APScheduler started (09:00 Asia/Bangkok)")
