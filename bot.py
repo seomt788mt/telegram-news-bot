@@ -5,7 +5,7 @@ import requests
 import feedparser
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-
+import html
 from telegram import Bot
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -39,21 +39,25 @@ def get_rss_news(rss_url: str, source_name: str) -> str:
     for i, entry in enumerate(feed.entries[:TOP_N], start=1):
         title = getattr(entry, "title", "").strip()
         link = getattr(entry, "link", "").strip()
+
         if not title or not link:
             continue
 
-        items.append(f"{i}️⃣ {title}\n🔗 {link}")
+        # 🔒 Escape HTML để tránh lỗi 400
+        safe_title = html.escape(title)
+
+        items.append(
+            f"{i}️⃣ <a href=\"{link}\">{safe_title}</a>"
+        )
 
     if not items:
         return ""
 
-    return f"📰 {source_name}\n\n" + "\n\n".join(items)
+    return f"📰 <b>{source_name}</b>\n\n" + "\n".join(items)
 
 def get_cafef_news() -> str:
     try:
         res = requests.get(CAFEF_HOME, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        res.raise_for_status()
-
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.select("h3 a")[:TOP_N]
 
@@ -68,12 +72,16 @@ def get_cafef_news() -> str:
             if not title or not link:
                 continue
 
-            items.append(f"{i}️⃣ {title}\n🔗 {link}")
+            safe_title = html.escape(title)
+
+            items.append(
+                f"{i}️⃣ <a href=\"{link}\">{safe_title}</a>"
+            )
 
         if not items:
             return ""
 
-        return "📊 CafeF\n\n" + "\n\n".join(items)
+        return "📊 <b>CafeF</b>\n\n" + "\n".join(items)
 
     except Exception as e:
         print("❌ CafeF error:", e)
@@ -123,6 +131,7 @@ def send_daily_news():
     payload = {
         "chat_id": CHAT_ID,
         "text": text,
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 
