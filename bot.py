@@ -115,26 +115,32 @@ def start_scheduler():
     tz = pytz.timezone("Asia/Bangkok")
     scheduler = BackgroundScheduler(timezone=tz)
 
-    # 🔥 TEST MODE (CHẠY MỖI PHÚT) – DÙNG ĐỂ KIỂM TRA
+    # =========================
+    # TEST MODE – GỬI MỖI PHÚT
+    # =========================
+    scheduler.add_job(
+        send_daily_news,
+        trigger=CronTrigger(minute="*/1"),
+        id="test_every_minute",
+        replace_existing=True,
+    )
+
+    # =========================
+    # CHẠY CHÍNH THỨC 09:00
+    # (COMMENT TEST MODE TRƯỚC KHI DÙNG)
+    # =========================
     # scheduler.add_job(
-    #     lambda: asyncio.run(send_daily_news()),
-    #     trigger=CronTrigger(minute="*/1"),
-    #     id="test_every_minute",
+    #     send_daily_news,
+    #     trigger=CronTrigger(hour=9, minute=0),
+    #     id="daily_9am",
     #     replace_existing=True,
+    #     misfire_grace_time=3600,
+    #     coalesce=True,
     # )
 
-    # ✅ CHÍNH THỨC – 09:00 SÁNG GIỜ VIỆT NAM
-   scheduler.add_job(
-    send_daily_news,
-    trigger=CronTrigger(minute="*/1"),
-    id="test_every_minute",
-    replace_existing=True,
-    )
-    print("🧪 TEST MODE: send every minute")
-    )
-
     scheduler.start()
-    print("✅ APScheduler started (09:00 Asia/Bangkok)")
+    print("✅ APScheduler started")
+
 
 
 # ======================
@@ -142,9 +148,8 @@ def start_scheduler():
 # ======================
 def main():
     start_scheduler()
-    print("✅ Bot service running (scheduler mode, no polling)")
+    print("✅ Bot started (scheduler mode)")
 
-    # Giữ process sống cho Render Free
     while True:
         time.sleep(60)
 
