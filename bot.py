@@ -16,6 +16,12 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+
+
+
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
