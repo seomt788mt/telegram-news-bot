@@ -237,7 +237,7 @@ def main() -> None:
     )
 
     print(f"✅ Running... daily at {SEND_TIME} ({TIMEZONE}) to chat_id={CHAT_ID}")
-threading.Thread(target=start_health_server, daemon=True).start()
+    threading.Thread(target=start_health_server, daemon=True).start()
     app.run_polling()
 
 
