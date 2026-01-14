@@ -87,7 +87,7 @@ def build_daily_message():
 # ======================
 # SEND MESSAGE (ASYNC)
 # ======================
-async def send_daily_news():
+def send_daily_news():
     text = build_daily_message()
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
