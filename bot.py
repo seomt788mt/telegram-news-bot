@@ -88,7 +88,7 @@ def build_daily_message():
 # SEND MESSAGE (ASYNC)
 # ======================
 async def send_daily_news():
-     text = build_daily_message()
+    text = build_daily_message()
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -101,11 +101,12 @@ async def send_daily_news():
     r = requests.post(url, json=payload, timeout=20)
     r.raise_for_status()
 
-    ok = r.json().get("ok", False)
-    if ok:
+    data = r.json()
+    if data.get("ok"):
         print("✅ Daily news sent successfully")
     else:
-        print("❌ Telegram API returned:", r.text)
+        print("❌ Telegram API error:", data)
+
 
 # ======================
 # APSCHEDULER
