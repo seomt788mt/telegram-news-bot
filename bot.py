@@ -94,7 +94,6 @@ def send_daily_news():
     payload = {
         "chat_id": CHAT_ID,
         "text": text,
-        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 
