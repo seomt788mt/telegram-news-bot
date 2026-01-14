@@ -32,35 +32,53 @@ if not BOT_TOKEN or not CHAT_ID:
 # ======================
 # BUILD NEWS CONTENT
 # ======================
-def get_rss_news(rss_url, source_name):
+def get_rss_news(rss_url: str, source_name: str) -> str:
     feed = feedparser.parse(rss_url)
     items = []
-    for entry in feed.entries[:TOP_N]:
-        items.append(f"• <a href='{entry.link}'>{entry.title}</a>")
+
+    for i, entry in enumerate(feed.entries[:TOP_N], start=1):
+        title = getattr(entry, "title", "").strip()
+        link = getattr(entry, "link", "").strip()
+        if not title or not link:
+            continue
+
+        items.append(f"{i}️⃣ {title}\n🔗 {link}")
+
     if not items:
         return ""
-    return f"🔸 <b>{source_name}</b>\n" + "\n".join(items)
 
+    return f"📰 {source_name}\n\n" + "\n\n".join(items)
 
-def get_cafef_news():
+def get_cafef_news() -> str:
     try:
-        res = requests.get(CAFEF_HOME, timeout=10)
+        res = requests.get(CAFEF_HOME, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        res.raise_for_status()
+
         soup = BeautifulSoup(res.text, "html.parser")
         links = soup.select("h3 a")[:TOP_N]
+
         items = []
-        for a in links:
+        for i, a in enumerate(links, start=1):
             title = a.get_text(strip=True)
             link = a.get("href")
+
             if link and link.startswith("/"):
                 link = "https://cafef.vn" + link
-            if title and link:
-                items.append(f"• <a href='{link}'>{title}</a>")
+
+            if not title or not link:
+                continue
+
+            items.append(f"{i}️⃣ {title}\n🔗 {link}")
+
         if not items:
             return ""
-        return "🔸 <b>CafeF</b>\n" + "\n".join(items)
+
+        return "📊 CafeF\n\n" + "\n\n".join(items)
+
     except Exception as e:
         print("❌ CafeF error:", e)
         return ""
+
 
 
 def build_daily_message():
@@ -87,8 +105,19 @@ def build_daily_message():
 # ======================
 # SEND MESSAGE (ASYNC)
 # ======================
+from datetime import datetime
+import requests
+
 def send_daily_news():
     text = build_daily_message()
+
+    # 🔒 Chống text rỗng (bắt buộc)
+    if not text or not text.strip():
+        text = "Hôm nay chưa có tin mới."
+
+    # 🗞️ Thêm tiêu đề bản tin (đẹp & chuyên nghiệp)
+    today = datetime.now().strftime("%d/%m/%Y")
+    text = f"🗞️ BẢN TIN SÁNG – {today}\n\n{text}"
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -99,18 +128,13 @@ def send_daily_news():
 
     r = requests.post(url, json=payload, timeout=20)
 
-    print("🔎 Telegram status:", r.status_code)
-    print("🔎 Telegram response:", r.text)
-    if r.status_code != 200:
-        return
-    print("✅ Daily news sent successfully")
+    # 🔍 Log để debug nếu Telegram từ chối
+    print("STATUS:", r.status_code)
+    print("RESPONSE:", r.text)
 
-
-    data = r.json()
-    if data.get("ok"):
+    if r.status_code == 200:
         print("✅ Daily news sent successfully")
-    else:
-        print("❌ Telegram API error:", data)
+
 
 
 # ======================
