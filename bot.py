@@ -231,25 +231,25 @@ def start_scheduler():
     # =========================
     # TEST MODE – GỬI MỖI PHÚT
     # =========================
-    scheduler.add_job(
-        send_daily_news,
-        trigger=CronTrigger(minute="*/1"),
-        id="test_every_minute",
-        replace_existing=True,
-    )
+    # scheduler.add_job(
+    #    send_daily_news,
+    #    trigger=CronTrigger(minute="*/1"),
+    #    id="test_every_minute",
+    #    replace_existing=True,
+    # )
 
     # =========================
     # CHẠY CHÍNH THỨC 09:00
     # (COMMENT TEST MODE TRƯỚC KHI DÙNG)
     # =========================
-    # scheduler.add_job(
-    #     send_daily_news,
-    #     trigger=CronTrigger(hour=9, minute=0),
-    #     id="daily_9am",
-    #     replace_existing=True,
-    #     misfire_grace_time=3600,
-    #     coalesce=True,
-    # )
+    scheduler.add_job(
+         send_daily_news,
+         trigger=CronTrigger(hour=9, minute=0),
+         id="daily_9am",
+         replace_existing=True,
+         misfire_grace_time=3600,
+         coalesce=True,
+     )
 
     scheduler.start()
     print("✅ APScheduler started")
