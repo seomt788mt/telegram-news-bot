@@ -188,6 +188,15 @@ def format_message(items_by_source: Dict[str, List[Dict]]) -> str:
     return "\n".join(lines)
 
 
+async def send_daily_news_job(context: ContextTypes.DEFAULT_TYPE):
+    # (toàn bộ logic lấy tin + gửi message để ở đây)
+    # ví dụ gửi:
+    await context.bot.send_message(chat_id=CHAT_ID, text="test job ok")
+
+async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_daily_news_job(context)
+
+
 async def send_daily_news(context: ContextTypes.DEFAULT_TYPE) -> None:
     items_by_source = collect_news(TOP_N)
     msg = format_message(items_by_source)
@@ -235,9 +244,9 @@ def main() -> None:
         name="daily_news",
         chat_id=CHAT_ID,
     )
-
-    print(f"✅ Running... daily at {SEND_TIME} ({TIMEZONE}) to chat_id={CHAT_ID}")
-    app.job_queue.run_once(send_daily_news, when=60, name="force_test")
+    
+    app.job_queue.run_daily(send_daily_news_job, time=t, name="daily_news", chat_id=CHAT_ID)
+    app.job_queue.run_once(send_daily_news_job, when=60, name="force_test")
     print("🔥 Force test: job will run in 60 seconds")
     threading.Thread(target=start_health_server, daemon=True).start()
     app.run_polling()
