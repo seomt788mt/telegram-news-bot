@@ -4,6 +4,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import sqlite3
 from datetime import time
 from typing import List, Dict
+import asyncio
+from telegram import Bot
 
 import requests
 import feedparser
@@ -188,6 +190,15 @@ def format_message(items_by_source: Dict[str, List[Dict]]) -> str:
     return "\n".join(lines)
 
 
+async def send_once():
+    """Chạy 1 lần: lấy tin và gửi vào CHAT_ID rồi thoát."""
+    bot = Bot(token=BOT_TOKEN)
+    # Gọi đúng hàm/logic bạn đang dùng để build nội dung tin
+    text = await build_daily_message()  # <-- bạn đổi tên theo hàm của bạn
+    if not text:
+        text = "Hôm nay không có tin mới."
+    await bot.send_message(chat_id=CHAT_ID, text=text, disable_web_page_preview=True)
+
 async def send_daily_news_job(context: ContextTypes.DEFAULT_TYPE):
     # (toàn bộ logic lấy tin + gửi message để ở đây)
     # ví dụ gửi:
@@ -252,5 +263,11 @@ def main() -> None:
     app.run_polling()
 
 
+import sys
+
 if __name__ == "__main__":
-    main()
+    if "--send-only" in sys.argv:
+        asyncio.run(send_once())
+    else:
+        main()
+
