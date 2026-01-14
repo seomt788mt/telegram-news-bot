@@ -88,18 +88,24 @@ def build_daily_message():
 # SEND MESSAGE (ASYNC)
 # ======================
 async def send_daily_news():
-    bot = Bot(token=BOT_TOKEN)
-    text = build_daily_message()
+     text = build_daily_message()
 
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text=text,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
 
-    print("✅ Daily news sent successfully")
+    r = requests.post(url, json=payload, timeout=20)
+    r.raise_for_status()
 
+    ok = r.json().get("ok", False)
+    if ok:
+        print("✅ Daily news sent successfully")
+    else:
+        print("❌ Telegram API returned:", r.text)
 
 # ======================
 # APSCHEDULER
@@ -118,13 +124,11 @@ def start_scheduler():
 
     # ✅ CHÍNH THỨC – 09:00 SÁNG GIỜ VIỆT NAM
     scheduler.add_job(
-        lambda: asyncio.run(send_daily_news()),
-        trigger=CronTrigger(hour=9, minute=0),
-        id="daily_9am",
-        replace_existing=True,
-        misfire_grace_time=3600,
-        coalesce=True,
-    )
+    send_daily_news,
+    trigger=CronTrigger(minute="*/1"),
+    id="test_every_minute",
+    replace_existing=True,
+)
 
     scheduler.start()
     print("✅ APScheduler started (09:00 Asia/Bangkok)")
